@@ -4,6 +4,9 @@
 import os
 import json
 import openai
+from openai import OpenAI
+
+client = OpenAI()
 import rclpy
 import threading
 from rclpy.node import Node
@@ -59,8 +62,8 @@ class ROSGPTNode(Node):
         self.publisher.publish(msg) # Publish the message using the publisher 
         #print('message Published: ', message) # Log the published message
         #print('msg.data Published: ', msg.data) # Log the published message
-        
-        
+
+
 
 
 
@@ -130,7 +133,7 @@ class ROSGPTProxy(Resource):
                     '''
         prompt = prompt+'\nprompt: '+text_command
         #print(prompt) #for testing
-        
+
 
         # Create the message structure for the LLM
         messages = [
@@ -140,19 +143,17 @@ class ROSGPTProxy(Resource):
 
         # Try to send the request to the LLM and handle any exceptions
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=messages,
-            )
-        except openai.error.InvalidRequestError as e:
+            response = client.chat.completions.create(model="gpt-3.5-turbo",
+            messages=messages)
+        except openai.InvalidRequestError as e:
             print(f"Error: {e}")
             return None
         except Exception as e:
             print(f"Unexpected error: {e}")
             return None
-        
+
         # Extract the LLM response from the returned JSON
-        chatgpt_response = response.choices[0].message['content'].strip()
+        chatgpt_response = response.choices[0].message.content.strip()
         #print(chatgpt_response)
         # Find the start and end indices of the JSON string in the response
         start_index = chatgpt_response.find('{')

@@ -22,12 +22,10 @@ setup(
     keywords=['ROS', 'ChatGPT'],
     classifiers=[
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: Creative Commons Attribution-NonCommercial License (CC BY-NC)',
         'Programming Language :: Python :: 3.10', #could work with other version. Tested with 3.10
     ],
     description='A ROS2 package for processing and executing unstructured textual commands using ChatGPT in human-robot interaction scenarios.',
-    license='Creative Commons Attribution-NonCommercial (CC BY-NC)',
-    tests_require=['pytest'],
+    license='MIT',
     entry_points={
         'console_scripts': [
             'rosgpt = rosgpt.rosgpt:main',
