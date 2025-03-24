@@ -3,10 +3,9 @@
 
 import os
 import json
-import openai
-from openai import OpenAI
-
-client = OpenAI()
+# Set litellm log level using environment variable instead of deprecated set_verbose
+os.environ['LITELLM_LOG'] = 'DEBUG'
+import litellm
 import rclpy
 import threading
 from rclpy.node import Node
@@ -28,13 +27,8 @@ CORS(app)
 # Create an API object that wraps the Flask app to handle RESTful requests
 api = Api(app)
 
-#You must add OPENAI_API_KEY as an environment variable
-#In Ubuntu: echo 'export OPENAI_API_KEY=your_api_key' >> ~/.bashrc
-# Get the API key from the environment variable. 
-openai_api_key = os.getenv('OPENAI_API_KEY')
-#print(openai_api_key)
-
-
+# No need for OpenAI API key anymore
+# Configure litellm for Ollama
 
 # Initialize a threading lock for synchronizing access to shared resources
 # when multiple threads are involved
@@ -64,9 +58,6 @@ class ROSGPTNode(Node):
         #print('msg.data Published: ', msg.data) # Log the published message
 
 
-
-
-
 def process_and_publish_chatgpt_response(chatgpt_ros2_node, text_command, chatgpt_response, use_executors=True):
     """
     Process the chatbot's response and publish it to the 'voice_cmd' topic.
@@ -88,7 +79,6 @@ def process_and_publish_chatgpt_response(chatgpt_ros2_node, text_command, chatgp
     else:
         with spin_lock:
             rclpy.spin_once(chatgpt_ros2_node)
-
 
 
 class ROSGPTProxy(Resource):
@@ -114,54 +104,130 @@ class ROSGPTProxy(Resource):
             str: The response from the LLM as a JSON string.
         """
         # Create the GPT-3 prompt with example inputs and desired outputs
-        prompt = '''Consider the following ontology:
+        # prompt = ''
+        prompt = '''You are a robot control assistant that can either:
+                    1) Convert human commands into robot control JSON
+                    2) Answer questions with normal text in json format
+
+                    For robot commands, use this ontology:
                     {"action": "go_to_goal", "params": {"location": {"type": "str", "value": location}}}
                     {"action": "move", "params": {"linear_speed": linear_speed, "distance": distance, "is_forward": is_forward}}
                     {"action": "rotate", "params": {"angular_velocity": angular_velocity, "angle": angle, "is_clockwise": is_clockwise}}
 
-                    You will be given human language prompts, and you need to return a JSON conformant to the ontology. Any action not in the ontology must be ignored. Here are some examples.
+                    Examples:
+
+                    prompt: "Hello, who are you?"
+                    returns: {"text": "I'm a robot control assistant that can help you control a turtle robot by converting your natural language commands into robot instructions."}
+
+                    prompt: "What can you do?"
+                    returns: {"text": "I can help you control a turtle robot by understanding commands like "move forward 2 meters" or "rotate 90 degrees clockwise". Just tell me what you want the robot to do!"}
 
                     prompt: "Move forward for 1 meter at a speed of 0.5 meters per second."
                     returns: {"action": "move", "params": {"linear_speed": 0.5, "distance": 1, "is_forward": true, "unit": "meter"}}
 
-                    prompt: "Rotate 60 degree in clockwise direction at 10 degrees per second and make pizza."
+                    prompt: "Rotate 60 degree in clockwise direction at 10 degrees per second."
                     returns: {"action": "rotate", "params": {"angular_velocity": 10, "angle": 60, "is_clockwise": true, "unit": "degrees"}}
                     
                     prompt: "go to the bedroom, rotate 60 degrees and move 1 meter then stop"
                     returns: {"action": "sequence", "params": [{"action": "go_to_goal", "params": {"location": {"type": "str", "value": "bedroom"}}}, {"action": "rotate", "params": {"angular_velocity": 30, "angle": 60, "is_clockwise": false, "unit": "degrees"}}, {"action": "move", "params": {"linear_speed": 1, "distance": 1, "is_forward": true, "unit": "meter"}}, {"action": "stop"}]}
-                    
                     '''
-        prompt = prompt+'\nprompt: '+text_command
-        #print(prompt) #for testing
-
-
-        # Create the message structure for the LLM
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ]
+        # Add the user's command to the prompt
+        full_prompt = prompt + '\nprompt: ' + text_command
+        print(f"Full prompt: {full_prompt}")
 
         # Try to send the request to the LLM and handle any exceptions
         try:
-            response = client.chat.completions.create(model="gpt-3.5-turbo",
-            messages=messages)
-        except openai.InvalidRequestError as e:
-            print(f"Error: {e}")
-            return None
+            # For Ollama, we need to use the simpler format without roles
+            print(f"Attempting to connect to Ollama at http://localhost:11434")
+            # response = litellm.completion(
+            #     model="ollama/gemma3",  # Use Gemma3 via Ollama - lowercase to match Ollama model
+            #     prompt=full_prompt,  # Just pass the prompt directly
+            #     api_base="http://localhost:11434",
+            #     max_tokens=1000,  # Ensure we get a complete response
+            # )
+            # print(f"Successfully got response from Ollama")
+
+            response = litellm.completion(
+                model="ollama/gemma3",
+                messages=[{"role": "user", "content": full_prompt}],
+                api_base="http://localhost:11434"  # Ensure Ollama server is running on this port
+            )
+            print(f"Successfully got response from  2")
+
+
+            data = response.json()
+            print(f"response.json(): {data}")
+
+            # Get the raw response text based on litellm.completion response format
+            raw_response = ""
+
+            if hasattr(response, 'choices') and len(response.choices) > 0:
+                choice = response.choices[0]
+                
+                # Try to get the text from different possible attributes
+                if hasattr(choice, 'text'):
+                    raw_response = choice.text
+                elif hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+                    raw_response = choice.message.content
+                else:
+                    # Last resort - convert the whole choice to string
+                    raw_response = str(choice)
+                    
+                print(f"Raw response from LLM: {raw_response}")
+            else:
+                print("Could not extract text from LLM response")
+                return None
+                
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"Error with LLM call: {e}")
+            print(f"Check if Ollama is running at http://localhost:11434")
             return None
 
-        # Extract the LLM response from the returned JSON
-        chatgpt_response = response.choices[0].message.content.strip()
-        #print(chatgpt_response)
-        # Find the start and end indices of the JSON string in the response
-        start_index = chatgpt_response.find('{')
-        end_index = chatgpt_response.rfind('}') + 1
-        # Extract the JSON string from the response
-        json_response_dict = chatgpt_response[start_index:end_index]
-        #print('\n\n\njson_response_dict ',json_response_dict)
-        return json.dumps({'text': chatgpt_response, 'json': json_response_dict})
+        # Clean the response and extract the JSON
+        try:
+            # Try to find JSON in the response
+            json_start = raw_response.find('{')
+            json_end = raw_response.rfind('}') + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                # JSON found in the response
+                json_text = raw_response[json_start:json_end]
+                # Try to parse it to validate it's proper JSON
+                json.loads(json_text)  # This will throw if invalid JSON
+                
+                # Check if the JSON contains 'action'
+                if 'action' in json_text:
+                    # If 'action' is present, format the response with both the full text and extracted JSON
+                    formatted_response = json.dumps({
+                        'text': raw_response,
+                        'json': json_text
+                    })
+                else:
+                    # If 'action' is not present, set 'is_text_only' to True
+                    formatted_response = json.dumps({
+                        'text': raw_response,
+                        'is_text_only': True
+                    })
+                # print(f"Formatted response: {formatted_response}")
+                return formatted_response
+            else:
+                # No JSON found - just return the text response
+                print("No JSON found in response, returning raw text")
+                formatted_response = json.dumps({
+                    'text': raw_response,
+                    'is_text_only': True
+                })
+                
+                return formatted_response
+                
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON from response: {e}")
+            print(f"Returning raw text response")
+            formatted_response = json.dumps({
+                'text': raw_response,
+                'is_text_only': True
+            })
+            return formatted_response
 
 
 
@@ -175,17 +241,35 @@ class ROSGPTProxy(Resource):
         """
 
         text_command = request.form['text_command']
-        print ('[ROSGPT] Command received. ', text_command, '. Asking ChatGPT ...')
+        print (f'[ROSGPT:post] Command received: {text_command}')
 
         chatgpt_response = self.askGPT(text_command)
-        print ('[ROSGPT] Response received from ChatGPT. \n', str(json.loads(chatgpt_response))[:60], '...')
-
+        
         if chatgpt_response is None:
-            return {'error': 'An error occurred while processing the request'}
+            error_msg = 'Failed to get response from LLM. Check if Ollama is running correctly.'
+            print(f'[ROSGPT] Error: {error_msg}')
+            return {'error': error_msg}, 500
 
-        threading.Thread(target=process_and_publish_chatgpt_response, args=(self.chatgpt_ros2_node, text_command, chatgpt_response, True)).start()
-        #print(json.loads(chatgpt_response))
-        return json.loads(chatgpt_response)
+        try:
+            # Parse response to ensure it's valid JSON
+            parsed_response = json.loads(chatgpt_response)
+            # print('[ROSGPT] Response received from LLM. \n', str(parsed_response)[:60], '...')
+            
+            # Check if this is a text-only response or a command
+            if 'is_text_only' in parsed_response:
+                # For text-only responses, just return the text without publishing to ROS
+                # print('[ROSGPT] Text-only response, not publishing to ROS.')
+                return parsed_response
+            else:
+                # For command responses, publish to ROS
+                threading.Thread(target=process_and_publish_chatgpt_response, 
+                            args=(self.chatgpt_ros2_node, text_command, chatgpt_response, True)).start()
+                
+                return parsed_response
+        except json.JSONDecodeError as e:
+            error_msg = f'Invalid JSON response: {e}'
+            print(f'[ROSGPT] Error: {error_msg}')
+            return {'error': error_msg}, 500
 
 
 @app.route('/')
@@ -198,6 +282,7 @@ def main():
     rclpy.init(args=None)
     chatgpt_ros2_node = ROSGPTNode()
     api.add_resource(ROSGPTProxy, '/rosgpt', resource_class_args=(chatgpt_ros2_node,))
+    # Make sure the port matches what's expected by the client
     app.run(debug=True, host='0.0.0.0', port=5000)
     rclpy.shutdown()
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # This file is part of rosgpt package.
 
-
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -16,8 +15,6 @@ import time
 from rclpy.executors import SingleThreadedExecutor
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
-
 
 
 class TurtlesimController(Node):
@@ -31,6 +28,7 @@ class TurtlesimController(Node):
         self.y  = 0.0
         self.theta  = 0.0
         self.pose = Pose()
+        self.clockwise = True
 
         self.thread_executor = ThreadPoolExecutor(max_workers=1)
 
@@ -39,8 +37,6 @@ class TurtlesimController(Node):
         move_thread.start()
         print('ROSGPT Turtlesim Controller Started. Waiting for input commands ...')
 
-        
-    
     def pose_callback(self, msg):
         self.x = msg.x
         self.y  = msg.y
@@ -63,20 +59,21 @@ class TurtlesimController(Node):
                 distance = cmd['params'].get('distance', 1.0)
                 is_forward = cmd['params'].get('is_forward', True)
 
-                #METHOD 1: running an async method as a new task. But method 2 is more straightforward
-                #self.move_executor.create_task(self.move_coro(linear_speed, distance, is_forward))
-                
-                #METHOD 2. create a thread executor
-                #we need to run the method on a different thread to avoid blocking rclpy.spin. 
+                # Create a thread executor
+                # we need to run the method on a different thread to avoid blocking rclpy.spin. 
                 self.thread_executor.submit(self.move, linear_speed, distance, is_forward)
 
-                #running move on the main thread will generate to error, as it will block rclpy.spin
+                # running move on the main thread will generate to error, as it will block rclpy.spin
                 #self.move(linear_speed, distance, is_forward)
             elif cmd['action'] == 'rotate':
                 angular_velocity = cmd['params'].get('angular_velocity', 1.0)
                 angle = cmd['params'].get('angle', 90.0)
                 is_clockwise = cmd['params'].get('is_clockwise', True)
+
+                # Create a thread executor
+                # we need to run the method on a different thread to avoid blocking rclpy.spin. 
                 self.thread_executor.submit(self.rotate, angular_velocity, angle, is_clockwise)
+
                 #self.rotate(angular_velocity, angle, is_clockwise)
         except json.JSONDecodeError:
             print('[json.JSONDecodeError] Invalid or empty JSON string received:', msg.data)
@@ -87,9 +84,6 @@ class TurtlesimController(Node):
         # TODO: Implement go_to_goal method
         # wil be defined later
         pass
-
-    async def move_coro(self, linear_speed, distance, is_forward):
-        return self.move(linear_speed, distance, is_forward)
 
     def get_distance(self,start, destination):
         return math.sqrt(((destination.x-start.x)**2 + (destination.y-start.y)**2))
@@ -111,62 +105,45 @@ class TurtlesimController(Node):
 
         start_pose = copy.copy(self.pose)
 
-        #self.move_executor.add_node(self)#
-
         while self.get_distance(start_pose, self.pose) < distance:
-            #print('start_pose', start_pose, 'self.pose', self.pose, 'moved_distance: ', self.get_distance(start_pose, self.pose))
-            #print('self.get_distance (start_pose, self.pose)<distance: ', self.get_distance(start_pose, self.pose) < distance)
-            print('distance moved: ', self.get_distance(start_pose, self.pose))
+            print(f'distance moved: {self.get_distance(start_pose, self.pose):.2f}')
             self.velocity_publisher.publish(twist_msg)
             self.move_executor.spin_once(timeout_sec=0.1)
 
         twist_msg.linear.x = 0.0
         self.velocity_publisher.publish(twist_msg)
-        print('distance moved: ', self.get_distance(start_pose, self.pose))
+        print(f'distance moved: {self.get_distance(start_pose, self.pose):.2f}')
         print('The Robot has stopped...')
 
-        #self.move_executor.remove_node(self)
-
-
-        #return 0
-
-
-
-    def rotate (self, angular_speed_degree, desired_relative_angle_degree, clockwise):
-        print('Start Rotating the Robot ...')
-        #rclpy.spin_once(self)
-        twist_msg=Twist()
-        angular_speed_degree=abs(angular_speed_degree) #make sure it is a positive relative angle
-        if (angular_speed_degree>30) :
-            print (angular_speed_degree)
-            print('[ERROR]: The rotation speed must be lower than 0.5!')
-            return -1
+    def rotate(self, angular_velocity, angle, is_clockwise):
+        print('Start rotating the robot at ', angular_velocity, 'degrees/s for angle ', angle, 'degrees')
+        twist_msg = Twist()
         
+        # Update the clockwise direction from the parameter
+        self.clockwise = is_clockwise
+        
+        angular_speed_degree = abs(angular_velocity)  # make sure it is a positive relative angle
+        if (angular_speed_degree > 30):
+            print(angular_speed_degree)
+            print('[ERROR]: The rotation speed must be lower than 30 degrees/s!')
+            return -1
+            
         angular_speed_radians = math.radians(angular_speed_degree)
-        twist_msg.angular.z = -abs(angular_speed_radians) if clockwise else abs(angular_speed_radians)
-        twist_msg.angular.z = abs(angular_speed_radians) * (-1 if clockwise else 1)
+        twist_msg.angular.z = abs(angular_speed_radians) * (-1 if self.clockwise else 1)
 
         start_pose = copy.copy(self.pose)
-        
-        #rclpy.spin_once(self)
+        rotated_related_angle_degree = 0.0
+        desired_relative_angle_degree = angle  # Use the provided angle parameter
 
-        rotated_related_angle_degree=0.0
-
-        while rotated_related_angle_degree<desired_relative_angle_degree:
-            #rclpy.spin_once(self)
+        while rotated_related_angle_degree < desired_relative_angle_degree:
             self.velocity_publisher.publish(twist_msg)
-            #print ('rotated_related_angle_degree', rotated_related_angle_degree, 'desired_relative_angle_degree', desired_relative_angle_degree)
             rotated_related_angle_degree = math.degrees(abs(start_pose.theta - self.pose.theta))
-            #rclpy.spin_once(self)
+            print(f"start: {math.degrees(start_pose.theta):.2f}, self: {math.degrees(self.pose.theta):.2f}, rotated: {rotated_related_angle_degree:.2f}")
+            time.sleep(0.1)
             
-            #rclpy.spin_once(self)
-            time.sleep(0.01)
-        #print ('rotated_related_angle_degree', rotated_related_angle_degree, 'desired_relative_angle_degree', desired_relative_angle_degree)
         twist_msg.angular.z = 0.0
         self.velocity_publisher.publish(twist_msg)
-        print('The Robot has stopped...')
-
-        #return 0
+        print('The Robot has stopped rotating...')
 
     
 def main(args=None):

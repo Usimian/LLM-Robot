@@ -19,23 +19,35 @@ class ROSGPTClient(Node):
 
     def send_text_command(self): # Send input to the ROSGPT system, then get a response from the LLM.
         while rclpy.ok():
-            print('Enter a move command or a rotate command. The current ROSGPTParser of rosgpt_turtlesim does not multiple command. Will be extended later')
             text_command = input("Enter a text command: ")
             data = {'text_command': text_command}
 
-            response = requests.post(self.server_url, data=data)
+            try:
+                print(f"Sending request to {self.server_url}")
+                print(f"Prompt: {text_command}")
+                response = requests.post(self.server_url, data=data)
 
-            if response.status_code == 200:
-                try:
-                    response_str = response.content.decode('utf-8')
-                    response_dict = json.loads(response_str)
+                if response.status_code == 200:
+                    try:
+                        response_str = response.content.decode('utf-8')
+                        response_dict = json.loads(response_str)
 
-                    self.get_logger().info('Response: {}'.format(response_dict['text']))
-                    self.get_logger().info('JSON: {}'.format(json.loads(response_dict['json'])))
-                except Exception as e:
-                    print('[Exception] An unexpected error occurred:', str(e)) 
-            else:
-                self.get_logger().error('Error: {}'.format(response.status_code))
+                        if 'is_text_only' in response_dict:
+                            # If 'is_text_only' is in the response, print the response text
+                            self.get_logger().info('Response: {}'.format(response_dict['text']))
+                        else:
+                            # If 'is_text_only' is not in the response, print the JSON action command
+                            self.get_logger().info('JSON: {}'.format(json.loads(response_dict['json'])))
+                    except Exception as e:
+                        print('[Exception] Error parsing response:', str(e))
+                        print('Raw response:', response.content.decode('utf-8', errors='replace'))
+                else:
+                    error_content = response.content.decode('utf-8', errors='replace')
+                    self.get_logger().error(f'Error {response.status_code}: {error_content}')
+            except requests.exceptions.ConnectionError:
+                self.get_logger().error(f'Connection error: Could not connect to {self.server_url}. Is the server running?')
+            except Exception as e:
+                self.get_logger().error(f'Unexpected error: {str(e)}')
 
 
 def main(args=None):
@@ -51,3 +63,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
