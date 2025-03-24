@@ -103,8 +103,7 @@ class ROSGPTProxy(Resource):
         Returns:
             str: The response from the LLM as a JSON string.
         """
-        # Create the GPT-3 prompt with example inputs and desired outputs
-        # prompt = ''
+        # Create the prompt with example inputs and desired outputs
         prompt = '''You are a robot control assistant that can either:
                     1) Convert human commands into robot control JSON
                     2) Answer questions with normal text in json format
@@ -117,10 +116,10 @@ class ROSGPTProxy(Resource):
                     Examples:
 
                     prompt: "Hello, who are you?"
-                    returns: {"text": "I'm a robot control assistant that can help you control a turtle robot by converting your natural language commands into robot instructions."}
+                    returns: "I'm a robot control assistant that can help you control a turtle robot by converting your natural language commands into robot instructions."
 
                     prompt: "What can you do?"
-                    returns: {"text": "I can help you control a turtle robot by understanding commands like "move forward 2 meters" or "rotate 90 degrees clockwise". Just tell me what you want the robot to do!"}
+                    returns: "I can help you control a turtle robot by understanding commands like "move forward 2 meters" or "rotate 90 degrees clockwise". Just tell me what you want the robot to do!"
 
                     prompt: "Move forward for 1 meter at a speed of 0.5 meters per second."
                     returns: {"action": "move", "params": {"linear_speed": 0.5, "distance": 1, "is_forward": true, "unit": "meter"}}
@@ -139,21 +138,13 @@ class ROSGPTProxy(Resource):
         try:
             # For Ollama, we need to use the simpler format without roles
             print(f"Attempting to connect to Ollama at http://localhost:11434")
-            # response = litellm.completion(
-            #     model="ollama/gemma3",  # Use Gemma3 via Ollama - lowercase to match Ollama model
-            #     prompt=full_prompt,  # Just pass the prompt directly
-            #     api_base="http://localhost:11434",
-            #     max_tokens=1000,  # Ensure we get a complete response
-            # )
-            # print(f"Successfully got response from Ollama")
 
             response = litellm.completion(
                 model="ollama/gemma3",
                 messages=[{"role": "user", "content": full_prompt}],
-                api_base="http://localhost:11434"  # Ensure Ollama server is running on this port
+                api_base="http://localhost:11434"
             )
-            print(f"Successfully got response from  2")
-
+            print(f"Successfully got response from Ollama")
 
             data = response.json()
             print(f"response.json(): {data}")
