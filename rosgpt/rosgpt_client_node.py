@@ -34,12 +34,10 @@ class ROSGPTClient(Node):
 
                         if 'is_text_only' in response_dict:
                             # If 'is_text_only' is in the response, log the 'text' field of the response dictionary
-                            print(response_dict['text'])
-                            # self.get_logger().info('JSON: {}'.format(json.loads(response_dict['text'])))
-                            # print(response_dict['text'])
+                            self.get_logger().info(response_dict['text'])
                         else:
                             # If 'is_text_only' is not in the response, log the JSON action command
-                            self.get_logger().info('JSON: {}'.format(json.loads(response_dict['json'])))
+                            self.get_logger().info(response_dict['json'])
                     except Exception as e:
                         print('[Exception] Error parsing response:', str(e))
                         print('Raw response:', response.content.decode('utf-8', errors='replace'))
